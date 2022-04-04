@@ -113,25 +113,27 @@ int main(int argc, char **argv)
 
         vTimesTrack[ni] = ttrack;
 
-        // // Wait to load the next frame
-        // double T = 0;
-        // if (ni < nImages - 1)
-        //     T = vTimestamps[ni + 1] - tframe;
-        // else if (ni > 0)
-        //     T = tframe - vTimestamps[ni - 1];
-
-        // if (ttrack < T)
-        //     usleep((T - ttrack) * 1e6);
-
+        // 如果不sleep，线程中的某些操作可能来不及做，下一帧图像就输入了
         // Wait to load the next frame
         double T = 0;
         if (ni < nImages - 1)
-            T = tframe - vTimestamps[ni + 1];
+            T = vTimestamps[ni + 1] - tframe;
         else if (ni > 0)
-            T = vTimestamps[ni - 1] - tframe;
+            T = tframe - vTimestamps[ni - 1];
 
         if (ttrack < T)
             usleep((T - ttrack) * 1e6);
+
+        // TODO: 倒序读取数据集时采用下面的方法sleep
+        // Wait to load the next frame
+        // double T = 0;
+        // if (ni < nImages - 1)
+        //     T = tframe - vTimestamps[ni + 1];
+        // else if (ni > 0)
+        //     T = vTimestamps[ni - 1] - tframe;
+
+        // if (ttrack < T)
+        //     usleep((T - ttrack) * 1e6);
 
     }
 

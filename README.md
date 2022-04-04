@@ -12,6 +12,10 @@
 |  Eigen3  | 矩阵运算库 | 为g2o提供支持                |
 | Pangolin |  可视化库  | ...                          |
 
+一种更加智能化的方法来提取指定区域的特征点? 或许我们理解的不对，跟踪失败并不是特征点变少了，
+而是在使用八叉树对关键点进行优化时，没有将这些特征点拆分，导致
+1. 在当前帧匹配点数量减少的情况下，使得八叉树拆分完全（不要提前结束）
+2. 使用attention（不熟悉），或者别的简单的判定标准，给特征点赋予权重
 
 ### 单目情况处理流程(Monocular case processing flow)
 ```
@@ -22,7 +26,13 @@
         3.1.1 重载括号操作符，提取左目(右目)特征点 -> ORBextractor::operator() 
             3.1.1.1 计算图像金字塔每层的图像的大小 -> ORBextractor::ComputePyramid()
             3.1.1.2 网格化金字塔的每层图像，并利用FAST方法提取每个网格中的图像 -> ORBextractor::ComputeKeyPointsOctTree()
-            3.1.1.3 计算特征点的描述子 -> ORBextractor::computeDescriptors()
+              3.1.1.2.1 在对应金字塔层的对应网格提取到原始的FAST关键点 -> cv::FAST()
+              3.1.1.2.2 在当前层用八叉树来优化关键点信息 -> ORBexactor::DistributeOctTree()
+                3.1.1.2.2.1 拆分当前节点为四个节点(当节点数量大于1) -> ORBexactor::DivideNode()
+              3.1.1.2.3 逐层计算该层每个关键点的方向 -> ORBexactor::ComputeOrientation()
+                3.1.1.2.3.1 计算当前层关键点的方向 -> ORBexactor::IC_Angle()
+            3.1.1.3 逐个计算关键点的描述子 -> ORBextractor::computeDescriptors()
+              3.1.1.3.1 计算当前关键点的描述子 -> ORBexactor::computeOrbDescriptor()
     3.2 根据畸变参数对特征点坐标进行校正 -> Frame::UndistortKeyPoints()
     3.3 将校正后的特征点分配到网格 -> Frame::AssignFeaturesToGrid()
 4. 跟踪 -> Tracking::Track()

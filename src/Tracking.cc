@@ -120,7 +120,7 @@ namespace ORB_SLAM2
         int fIniThFAST = fSettings["ORBextractor.iniThFAST"];       // FAST算法的初始阈值
         int fMinThFAST = fSettings["ORBextractor.minThFAST"];       // 初始阈值提取不到特征点时采用的阈值（较初始值小，意味着图像对比度小）
 
-        // 构造左目图像上ORB的提取对象，也适用于单目中非初始化帧的后续帧
+        // 构造左目图像上ORB的提取对象，也适用于单目中非初始化帧的后续帧；如果是初始化帧，则单目构造ORB特征点的提取对象
         mpORBextractorLeft = new ORBextractor(nFeatures, fScaleFactor, nLevels, fIniThFAST, fMinThFAST);
 
         // 如果是双目，增加右目图像的ORB提取对象

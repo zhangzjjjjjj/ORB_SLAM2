@@ -446,13 +446,14 @@ namespace ORB_SLAM2
             -1, -6, 0, -11 /*mean (0.127148), correlation (0.547401)*/
     };
 
-    // 特征点的个数，比例金字塔中每层之间的比例因子，比例金字塔的层数，
     ORBextractor::ORBextractor(int _nfeatures, float _scaleFactor, int _nlevels,
                                int _iniThFAST, int _minThFAST) : nfeatures(_nfeatures), scaleFactor(_scaleFactor), nlevels(_nlevels),
                                                                  iniThFAST(_iniThFAST), minThFAST(_minThFAST)
     {
-        // 所以ORB参数再构造函数中就对应赋给了各个成员变量，所以后续就可以直接用了
-        // mvScaleFactor和mvLevelSigma2是ORBextractor的成员变量vector，根据传入的层数设置了他的长度
+        // _nfeatures: 特征点的个数; _scaleFactor: 比例金字塔中每层之间的比例因子; _nlevels: 比例金字塔的层数
+
+        // ORBexactor是在Tracking的构造函数构造时定义的(或者说初始化的、构造的)
+        // mvScaleFactor和mvLevelSigma2是ORBextractor的成员变量vector，根据传入的层数构造它的长度
         mvScaleFactor.resize(nlevels);
         mvLevelSigma2.resize(nlevels);
         // 它们的初值都是1
@@ -480,6 +481,7 @@ namespace ORB_SLAM2
         mvImagePyramid.resize(nlevels); // 存储每一层金字塔图像的内容
 
         mnFeaturesPerLevel.resize(nlevels); // 存储每一层金字塔预设的特征点数量
+
         float factor = 1.0f / scaleFactor;
         float nDesiredFeaturesPerScale = nfeatures * (1 - factor) / (1 - (float)pow((double)factor, (double)nlevels));
 
@@ -493,7 +495,8 @@ namespace ORB_SLAM2
         //=(1-f)/(1-f^8)(1+f)(1+f^2)(1+f^4)
         //=(1-f)/(1-f^8)(1-f^8)/(1-f)
         //=1
-        // nfeatures并不是每一层的特征点的数量，而是所有层特征点加一起的总数
+        // nfeatures并不是每一层的特征点的数量，而是所有层特征点数量加一起的总数
+        // mnFeaturesPerLevel是每一层金字塔预设的数量
         int sumFeatures = 0;
         for (int level = 0; level < nlevels - 1; level++)
         {
@@ -503,6 +506,8 @@ namespace ORB_SLAM2
         }
 
         // cvRound是一个四舍五入的函数。最后一层金字塔的特征点数=nfeatures-前几层金字塔特征点数量的和
+        // 433.3 361.9 301.6 251.3 209.4 174.5 145.4 121.2
+        // 433 + 362 + 302 + 251 + 209 + 175 + 145 + 121 = 1998
         mnFeaturesPerLevel[nlevels - 1] = std::max(nfeatures - sumFeatures, 0);
 
         // 将1024长度的int型数组(bit_pattern_31_)变成了一个长度512的Point类型的一维数组(pattern0)
@@ -539,9 +544,7 @@ namespace ORB_SLAM2
     static void computeOrientation(const Mat &image, vector<KeyPoint> &keypoints, const vector<int> &umax)
     {
         // 其实核心是IC_Angle函数，这里是用了这个函数
-        for (vector<KeyPoint>::iterator keypoint = keypoints.begin(),
-                                        keypointEnd = keypoints.end();
-             keypoint != keypointEnd; ++keypoint)
+        for (vector<KeyPoint>::iterator keypoint = keypoints.begin(), keypointEnd = keypoints.end(); keypoint != keypointEnd; ++keypoint)
         {
             // OpenCV的KeyPoint有个angle属性(float)，当就算好方向后就直接赋值给它
             // angle属性用角度表示，范围是[0,360)，顺时针
@@ -623,9 +626,14 @@ namespace ORB_SLAM2
             n4.bNoMore = true;
     }
 
-    vector<cv::KeyPoint> ORBextractor::DistributeOctTree(const vector<cv::KeyPoint> &vToDistributeKeys, const int &minX,
-                                                         const int &maxX, const int &minY, const int &maxY, const int &N, const int &level)
+    vector<cv::KeyPoint> ORBextractor::DistributeOctTree(
+        const vector<cv::KeyPoint> &vToDistributeKeys, // 当前层提取到的未经处理的FAST关键点
+        const int &minX, const int &maxX, const int &minY, const int &maxY,
+        const int &N, // 金字塔当前层期望的特征点的数量
+        const int &level)
     {
+        // 对金字塔当前层优化原始的FAST关键点
+
         // Compute how many initial nodes
         // 前面说过了，static_cast理解为强制类型转换就好
         // 求解X方向上初始节点的个数，至于为什么用dx/dy再四舍五入取整这样比较奇怪的方式计算X方向初始节点个数暂时不知道
@@ -633,31 +641,35 @@ namespace ORB_SLAM2
         // 根据上面获得的X方向上的节点个数求解初始节点的水平宽度
         const float hX = static_cast<float>(maxX - minX) / nIni;
 
-        // 新建一个ExtractorNode类型的list用于存放节点
-        // 这个list后面会频繁用到
+        // 创建所有节点的列表
         list<ExtractorNode> lNodes;
 
-        // 新建一个Extractor指针类型的vector
+        // 对应lNodes，保存节点的指针
         // 它里面存放的是每次循环向lNodes添加元素后其最后一个元素的地址
         vector<ExtractorNode *> vpIniNodes;
-        vpIniNodes.resize(nIni); // 长度就设置为刚刚计算出来的个数
+        vpIniNodes.resize(nIni); // 对应nIni个节点
+        // ---------------------
+        // |   |   |   |   |   |
+        // |   |   |   |   |   |
+        // ---------------------
+        // 一共有nIni个列
 
         // 依次循环，构造节点放入vector中
         // 执行完这个循环其实只是将图像进行了X方向上的节点划分
         // 因为在循环中所有节点的四角点的Y坐标值都是对应相同的
         for (int i = 0; i < nIni; i++)
         {
-            // 每次循环都新建一个临时变量ni，四角点坐标的计算比较简单，一看就懂
+            // nIni次循环创建了nIni个节点
             ExtractorNode ni;
-            // 上面两个坐标，所以y方向都为0
+            // U:up; B:bottom; L:left; R:right
+            // x方向上每个节点都是不一样的，y方向上都是[0, maxY-minY]
+            // 这是因为节点是按照x方向划分的
             ni.UL = cv::Point2i(hX * static_cast<float>(i), 0);
             ni.UR = cv::Point2i(hX * static_cast<float>(i + 1), 0);
-            // 下面两个坐标，所以y方向都为dy，也就是maxY-minY
             ni.BL = cv::Point2i(ni.UL.x, maxY - minY);
             ni.BR = cv::Point2i(ni.UR.x, maxY - minY);
-            // 设置节点的特征点vector长度为传入的vector的长度
-            // 不要忘记了这个传入的vToDistributeKeys是哪里来的
-            // 它里面是金字塔每一层提取的未经处理的原始特征点
+            // vToDistributeKeys是在处理金字塔的每一层时逐层定义的
+            // vToDistributeKeys是金字塔当前层提取到的未经处理的FAST关键点
             ni.vKeys.reserve(vToDistributeKeys.size());
 
             lNodes.push_back(ni); // 将节点放入lNodes中
@@ -667,12 +679,12 @@ namespace ORB_SLAM2
         }
 
         // Associate points to childs
-        // 遍历所有特征点，按照X方向上的位置安放到对应的节点中去
+        // 遍历所有特征点，按照x方向上的位置安放到对应的节点中去
         for (size_t i = 0; i < vToDistributeKeys.size(); i++)
         {
-            // 获取特征点
+            // 获取关键点
             const cv::KeyPoint &kp = vToDistributeKeys[i];
-            // 根据特征点x坐标和节点宽度计算得到其所对应的节点索引
+            // 根据关键点的x坐标，计算应该位于[0,1,...,nIni-1]中的哪一个节点
             // 再根据节点索引获得对应节点，利用 -> 操作符获取节点对象内的public的vector成员变量
             // 最后将该特征点push到这个vector中
             vpIniNodes[kp.pt.x / hX]->vKeys.push_back(kp);
@@ -681,30 +693,31 @@ namespace ORB_SLAM2
         // 构造一个迭代器，指向lNodes的第一个元素 ，后面就不新建一直用这个了
         list<ExtractorNode>::iterator lit = lNodes.begin();
 
-        // 循环遍历节点，对于只含一个特征点和不含特征点的节点单独进行处理
+        // 循环遍历节点，对只含一个关键点或者不含关键点的情况进行处理
         while (lit != lNodes.end())
         {
-            // 如果当前节点只含一个特征点，那么就把当前节点的bNoMore设置为true
-            // 也就是说指定当前节点不可以再继续分割了
+            // 当前节点只含一个关键点，就不能再继续分裂了，将bNoMore设置为true
             if (lit->vKeys.size() == 1)
             {
                 lit->bNoMore = true;
                 lit++; // 迭代器迭代到下一个
             }
-            // 如果说当前节点不含特征点，那么就直接把当前节点从lNodes中抹去
+            // 当前节点不含关键点，就将其删掉
             else if (lit->vKeys.empty())
                 // erase()函数的用法需要注意一下
                 // 它的输入参数是指向需要抹去元素的迭代器
-                // 而它相比于remove()函数无返回值，它是由返回值的
+                // 而它相比于remove()函数无返回值，它是有返回值的
                 // 它的返回值就是指向下一个元素的迭代器
                 // 因此，在这个分支里就不再需要lit++了
                 lit = lNodes.erase(lit);
-            // 如果当前节点既不为空也不仅包含一个特征点，那么就什么都不做，直接跳过
+            // 当前节点所含的关键点数量大于1，继续迭代
             else
                 lit++;
         }
 
-        bool bFinish = false; // 一个flag变量，用于指示分割是否完成，是否停止迭代
+        // 标识节点分裂是否完成
+        // 如果提前达到期望的特征点数量，则设置为true
+        bool bFinish = false; 
 
         int iteration = 0; // 迭代次数
 
@@ -833,7 +846,7 @@ namespace ORB_SLAM2
             }
             // 而如果当前节点总数加上3倍nToExpand大于N，则执行下面操作
             // 这里体现的就是nToExpand的作用，上面说了nToExpand表示的是经过迭代后包含特征点数量大于1的节点的个数
-            // 如果说当前节点总数加上3倍nToExpand大于N，则说明当前分割结果不够“干净”、“均匀”，还包含了大量特征多余1的节点
+            // 如果说当前节点总数加上3倍nToExpand大于N，则说明当前分割结果不够“干净”、“均匀”，还包含了大量关键点数大于1的节点
             // 至于说为什么是3，暂时还不太清楚
             else if (((int)lNodes.size() + nToExpand * 3) > N)
             {
@@ -899,10 +912,12 @@ namespace ORB_SLAM2
 
                         // 添加完子节点以后还是别忘了把父节点删掉
                         lNodes.erase(vPrevSizeAndPointerToNode[j].second->lit);
+                        cout << "Exist ((int)lNodes.size() + nToExpand * 3) > N" << endl;
 
-                        // 如果当前节点个数大于期望值N，就直接结束for循环
-                        if ((int)lNodes.size() >= N)
-                            break;
+                        // 如果当前层的特征点数已经大于预设的值，直接退出循环
+                        // TODO: 修改此处的条件，使得特征点的数量即使大于预设值，也不退出
+                        // if ((int)lNodes.size() >= N)
+                        //     break;
                     }
 
                     // 判断条件和前面一样，满足的话bFinish设为true
@@ -1040,6 +1055,7 @@ namespace ORB_SLAM2
             keypoints.reserve(nfeatures);
 
             // 用八叉树来表示关键点信息
+            // 传入了mnFeaturesPerLevel，这是预设的每一层特征点的数量；根据这个参数来调整特征点的数量
             keypoints = DistributeOctTree(vToDistributeKeys, minBorderX, maxBorderX,
                                           minBorderY, maxBorderY, mnFeaturesPerLevel[level], level);
 
