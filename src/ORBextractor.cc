@@ -637,7 +637,22 @@ namespace ORB_SLAM2
         // Compute how many initial nodes
         // 前面说过了，static_cast理解为强制类型转换就好
         // 求解X方向上初始节点的个数，至于为什么用dx/dy再四舍五入取整这样比较奇怪的方式计算X方向初始节点个数暂时不知道
+        // 一旦图像的高度大于图像的宽度，会引发错误
         const int nIni = round(static_cast<float>(maxX - minX) / (maxY - minY));
+        
+        // 下面的修改可以图像高度大于宽度时的错误 https://github.com/raulmur/ORB_SLAM2/pull/1029
+        /*
+        int dX = maxX - minX;
+        int dY = maxY - minY;
+        if (dX > dY)
+        {
+            int nIni = round(static_cast<float>(dX) / dY);
+        }
+        else
+            int nIni = round(static_cast<float>(dY) / dX);
+        */
+
+
         // 根据上面获得的X方向上的节点个数求解初始节点的水平宽度
         const float hX = static_cast<float>(maxX - minX) / nIni;
 
