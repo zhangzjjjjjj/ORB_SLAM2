@@ -228,6 +228,7 @@ namespace ORB_SLAM2
         mvuRight = vector<float>(N, -1);
         mvDepth = vector<float>(N, -1);
 
+        // 地图点和外基线
         mvpMapPoints = vector<MapPoint *>(N, static_cast<MapPoint *>(NULL));
         mvbOutlier = vector<bool>(N, false);
 

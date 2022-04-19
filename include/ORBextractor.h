@@ -44,6 +44,7 @@ namespace ORB_SLAM2
     class ORBextractor
     {
     public:
+        long unsigned int frameId;
         enum
         {
             HARRIS_SCORE = 0,

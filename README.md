@@ -31,7 +31,8 @@
                 3.1.1.2.2.1 拆分当前节点为四个节点(当节点数量大于1) -> ORBexactor::DivideNode()
               3.1.1.2.3 逐层计算该层每个关键点的方向 -> ORBexactor::ComputeOrientation()
                 3.1.1.2.3.1 计算当前层关键点的方向 -> ORBexactor::IC_Angle()
-            3.1.1.3 逐个计算关键点的描述子 -> ORBextractor::computeDescriptors()
+            3.1.1.3 逐层使用7*7的高斯核对图像进行模糊，避免高斯噪声点对BRIEF的影响
+            3.1.1.4 逐层计算关键点的描述子 -> ORBextractor::computeDescriptors()
               3.1.1.3.1 计算当前关键点的描述子 -> ORBexactor::computeOrbDescriptor()
     3.2 根据畸变参数对特征点坐标进行校正 -> Frame::UndistortKeyPoints()
     3.3 将校正后的特征点分配到网格 -> Frame::AssignFeaturesToGrid()

@@ -37,7 +37,7 @@ namespace ORB_SLAM2
     const int ORBmatcher::TH_HIGH = 100;     // 100
     const int ORBmatcher::TH_LOW = 50;       // 50
     const int ORBmatcher::HISTO_LENGTH = 30; // 30
-    // HISTO_LENGTH: 用来做方向梯度直方图
+    // HISTO_LENGTH: 用来做方向梯度直方图；BIN是一种基于梯度的度量，这里采用30度为一个BIN
 
     ORBmatcher::ORBmatcher(float nnratio, bool checkOri) : mfNNratio(nnratio), mbCheckOrientation(checkOri)
     {

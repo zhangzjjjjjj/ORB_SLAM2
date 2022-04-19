@@ -74,32 +74,54 @@ namespace ORB_SLAM2
 
     static float IC_Angle(const Mat &image, Point2f pt, const vector<int> &u_max)
     {
+        double m_00 = 0;
         int m_01 = 0, m_10 = 0; // 它们对应公式中的常量
 
         // 先对传入的特征点坐标四舍五入取整，基于这个坐标再去获取一个指向该像素的指针，注意不是对应的灰度值
         // 把image前面的取地址符&去掉才是灰度值，这里center是一个uchar类型的指针，所以后面才能对它进行索引取值
+        // uchar范围0~255，center为中心点的灰度值的指针
         const uchar *center = &image.at<uchar>(cvRound(pt.y), cvRound(pt.x));
 
         // Treat the center line differently, v=0
+        // 计算中间那行像素m_10
         for (int u = -HALF_PATCH_SIZE; u <= HALF_PATCH_SIZE; ++u)
-            m_10 += u * center[u];
+        {
+            m_10 += u * center[u]; // center是最中间的点，所以前面有值，下标可以为负
+            m_00 += center[u];
+        }
 
         // Go line by line in the circuI853lar patch
+        // 逐行计算m_10和m_01
         int step = (int)image.step1();
         for (int v = 1; v <= HALF_PATCH_SIZE; ++v)
         {
             // Proceed over the two lines
+            // 计算上下以中间行对称的两行像素m_01和m_10
             int v_sum = 0;
             int d = u_max[v];
-            for (int u = -d; u <= d; ++u)
+            for (int u = -d; u <= d; ++u) // 从左到右遍历u
             {
+                // val_plus(u,v)处像素灰度，val_minus为(u,-v)处灰度
                 int val_plus = center[u + v * step], val_minus = center[u - v * step];
                 v_sum += (val_plus - val_minus);
                 m_10 += u * (val_plus + val_minus);
+                m_00 += (val_plus + val_minus);
             }
             m_01 += v * v_sum;
+            m_00 += v_sum;
+            // 并没有对 (m_01/m_00, m_10/m_00)绝对值靠近0的点做筛选
+            // OpenCV是否做了筛选?
         }
-
+        // 计算arctan(m_01 / m_10)
+        double m_10_00 = m_10 / m_00;
+        double m_01_00 = m_01 / m_00;
+        double C = pow(m_10_00, 2) + pow(m_01_00, 2);
+        // cout << "|C|=" << C << endl;
+        // TODO: 增加了对|C|的判断
+        // if (C < 0.1)
+        //     return -1;
+        // else
+        //     return fastAtan2((float)m_01, (float)m_10);
         return fastAtan2((float)m_01, (float)m_10);
     }
 
@@ -107,32 +129,37 @@ namespace ORB_SLAM2
     static void computeOrbDescriptor(const KeyPoint &kpt,
                                      const Mat &img, const Point *pattern,
                                      uchar *desc)
+    // 作者这里手动实现了BRIEF描述子的提取
     // const声明的变量是只读的，不可修改的
     // 另外这里看起来传入的是一个Point指针类型的pattern，但其实是一个数组，可以根据索引获取其它元素
     {
         // 在特征提取后，会在computerOrientation函数中计算特征点的角度
         float angle = (float)kpt.angle * factorPI;          // 将角度转换成弧度
-        float a = (float)cos(angle), b = (float)sin(angle); // 相关变量计算
+        float a = (float)cos(angle), b = (float)sin(angle); // 相关变量计算(cos, sin)
 
         // 和之前一样，这里获取的是一个指向特征点的uchar类型的指针，并非是特征点所对应像素的灰度值，需要注意
         // 如果img前面的取地址符&去掉，获取的就是该位置对应的灰度值了
         // 换句话说是可以对center进行索引操作获取其它元素的值的，这在下面定义的宏中就有体现
         const uchar *center = &img.at<uchar>(cvRound(kpt.pt.y), cvRound(kpt.pt.x));
-        // 这里的step是Mat的属性之一，表示一个数据所占字节长度，方便后面迭代时候跳过指定步长
-        // 例如一个单通道灰度图像一个像素值在我这里字节长度是700，而RGB图像一个像素的长度是2100
+        // 这里的step是cv::Mat的属性之一，方便后面迭代时候跳过指定步长
+        // 例如KITTI 09序列，图像的大小位1226 * 370，为三通道的RGB图像
+        // image.step = 1226 * 3(通道数) * 1(表达每个通道所需字节数) = 3678
         const int step = (int)img.step;
 
-// 则合理定义了一个宏，用于后续计算的方便
+// 这里定义了一个宏，用于后续计算的方便
 // 这里的center就是上面获取的uchar的指针，而pattern就是传入的参数
 // 这里面一长串其实都是在计算索引，而对center取索引获取到的就是该索引（位置）所对应的灰度值
+// 这一步是为了将描述子加上经过灰度质心法计算的方向向量信息
+// 首先改变点的坐标
+// y' = cvRound(pattern[idx].x * b + pattern[idx].y * a)    // y'=(x*sinθ + y*cosθ)
+// x' = cvRound(pattern[idx].x * a - pattern[idx].y * b)    // x'=(x*cosθ - y*sinθ)
+// 最终要取的是指针，所以要取第y'行第x'列，对应的字节就是y' * step + x' * 1, 1的原因是每一个像素占一个字节
+// 且center是uchar类型的指针(占1个字节，范围0~255)
 #define GET_VALUE(idx)                                               \
     center[cvRound(pattern[idx].x * b + pattern[idx].y * a) * step + \
            cvRound(pattern[idx].x * a - pattern[idx].y * b)]
 
-        // 前面定义的描述子有32列，对应这里的32次循环
-        // 注意这里的pattern指向的地址随着迭代也在变化，每次增加16
-        // 这16其实就是对应一次迭代读取pattern的步长，在一次迭代中，一共会获取16个元素，所以下一次迭代从16开始
-        // 另外，根据这个算法，可以计算出一共要有32*16个点用于迭代，而在代码一开始的pattern中就是512个点，在类的构造函数初始化pattern的时候也有体现
+        // 描述子有32列，所以要迭代32次；每一列可以提取8位二进制描述子，需要16个点，pattern每次自增16
         for (int i = 0; i < 32; ++i, pattern += 16)
         {
             int t0, t1, val; // 临时变量
@@ -142,13 +169,8 @@ namespace ORB_SLAM2
             val = t0 < t1;     // true为1，false为0
             t0 = GET_VALUE(2); // 和上面一样
             t1 = GET_VALUE(3);
-            // |表示两个相应的二进制位中只要有一个为1，该位的结果值为1，否则为0
-            // 而这里又多了一个等号，就类似于+=这种操作，表示按位或赋值
-            // 将val于t0 < t1进行按位或运算，并将结果再赋给val
-            // << 用来将一个数的各二进制位全部左移N位，高位舍弃，低位补0
-            // 另外还需要主义的是这里的运算顺序
-            // 这里认为添加了括号，所以先运算括号里面的内容，然后运算 <<，最后运算后的结果再按位或赋值
-            // 这里之所以要左移1位是因为上面第一位已经有了内容，如果不左移的话，数据就被覆盖了
+            // 先计算 t0<t1 的值，然后左移1位，然后将该值与val与运算后赋给val
+            // 保证了val低位的值不会被覆盖，同时将新计算出的二进制描述子赋给更高一位
             val |= (t0 < t1) << 1;
             t0 = GET_VALUE(4);
             t1 = GET_VALUE(5);
@@ -169,11 +191,9 @@ namespace ORB_SLAM2
             t1 = GET_VALUE(15);
             val |= (t0 < t1) << 7;
 
-            // 每次比较都有一个0或1的结果，上面比较了8次，因此到这里val是8位的0、1二进制串
-            // 而且根据desc数据类型的定义，是8U，最大值为255，所以将8位的二进制串转成char类型不会有任何数据丢失问题
-            // 另外前面说了，desc可以看成是有32个元素的数组，因此直接基于索引就可以进行赋值
-            // 将二进制串转换成uchar类型的数值后就可以直接赋值给desc[1]，就完成了一个描述子的一个数的计算
-            // 迭代32次就可以把整个描述子计算出来
+            // 比较八次后就可以得到一个长度为8个比特(1个字节)长度的val; 仅需要用一个字节(uchar)即可表示
+            // 所以将desc[0]赋为uchar类型的值；desc本身是一个uchar类型的指针；
+            // 一次迭代可以计算除8位长度的描述子，迭代32即可计算出256位的desc
             desc[i] = (uchar)val;
         }
 
@@ -182,10 +202,14 @@ namespace ORB_SLAM2
     }
 
     // 对应论文中提供好的pattern，直接用即可
-    // 注意一下存放的数据结构，一共1024个数，对应512个点
+    // pattern不变，所以不同特征点提取的方法不是随机的
+    // 这保证了计算汉明距离时不会因为随机因子造成对因为的描述子对应的含义不同
     // bit_pattern_31_本身是一个长度位1024的一维数组
     // 但经过构造函数中的指针类型转换，就使得pattern对应的是一个512长度的Point类型的数组了
     // 最后将这个长度位512的Point类型的数组拷贝给vector成员变量pattern
+    // 这个数组大小为为256*4；每一行有4个数，分别表示(x1,y1),(x2,y2)，即一行表示一对点
+    // 1对点(4个值)可以计算得到一个描述子，256对点可以计算得到256位的描述子
+    // 点的范围是31(矩阵)(-13,-12),(12,12),(12,-12),(-12,12)，这与灰度质心的计算范围一致
     static int bit_pattern_31_[256 * 4] =
         {
             8, -3, 9, 5 /*mean (0), correlation (0)*/,
@@ -450,6 +474,7 @@ namespace ORB_SLAM2
                                int _iniThFAST, int _minThFAST) : nfeatures(_nfeatures), scaleFactor(_scaleFactor), nlevels(_nlevels),
                                                                  iniThFAST(_iniThFAST), minThFAST(_minThFAST)
     {
+        frameId = 0;
         // _nfeatures: 特征点的个数; _scaleFactor: 比例金字塔中每层之间的比例因子; _nlevels: 比例金字塔的层数
 
         // ORBexactor是在Tracking的构造函数构造时定义的(或者说初始化的、构造的)
@@ -548,7 +573,11 @@ namespace ORB_SLAM2
         {
             // OpenCV的KeyPoint有个angle属性(float)，当就算好方向后就直接赋值给它
             // angle属性用角度表示，范围是[0,360)，顺时针
-            keypoint->angle = IC_Angle(image, keypoint->pt, umax);
+            float angle = IC_Angle(image, keypoint->pt, umax);
+            if (angle < 0)
+                keypoints.erase(keypoint);
+            else
+                keypoint->angle = angle;
         }
     }
 
@@ -639,7 +668,7 @@ namespace ORB_SLAM2
         // 求解X方向上初始节点的个数，至于为什么用dx/dy再四舍五入取整这样比较奇怪的方式计算X方向初始节点个数暂时不知道
         // 一旦图像的高度大于图像的宽度，会引发错误
         const int nIni = round(static_cast<float>(maxX - minX) / (maxY - minY));
-        
+
         // 下面的修改可以图像高度大于宽度时的错误 https://github.com/raulmur/ORB_SLAM2/pull/1029
         /*
         int dX = maxX - minX;
@@ -651,7 +680,6 @@ namespace ORB_SLAM2
         else
             int nIni = round(static_cast<float>(dY) / dX);
         */
-
 
         // 根据上面获得的X方向上的节点个数求解初始节点的水平宽度
         const float hX = static_cast<float>(maxX - minX) / nIni;
@@ -732,7 +760,7 @@ namespace ORB_SLAM2
 
         // 标识节点分裂是否完成
         // 如果提前达到期望的特征点数量，则设置为true
-        bool bFinish = false; 
+        bool bFinish = false;
 
         int iteration = 0; // 迭代次数
 
@@ -927,12 +955,13 @@ namespace ORB_SLAM2
 
                         // 添加完子节点以后还是别忘了把父节点删掉
                         lNodes.erase(vPrevSizeAndPointerToNode[j].second->lit);
-                        cout << "Exist ((int)lNodes.size() + nToExpand * 3) > N" << endl;
+                        // 检测到多次下面的输出
+                        // cout << "Exist ((int)lNodes.size() + nToExpand * 3) > N" << endl;
 
                         // 如果当前层的特征点数已经大于预设的值，直接退出循环
                         // TODO: 修改此处的条件，使得特征点的数量即使大于预设值，也不退出
-                        // if ((int)lNodes.size() >= N)
-                        //     break;
+                        if ((int)lNodes.size() >= N)
+                            break;
                     }
 
                     // 判断条件和前面一样，满足的话bFinish设为true
@@ -981,6 +1010,15 @@ namespace ORB_SLAM2
         return vResultKeys;
     }
 
+    // 绘制当前帧指定金字塔层数的图像
+    static void plotOctaveKeyPointsImage(const Mat image, const vector<KeyPoint> keypoints, long unsigned int frameID, int level)
+    {
+        Mat kpImage;
+        drawKeypoints(image, keypoints, kpImage);
+        string filepath = "/home/zhangzj/SLAM/octave/" + to_string(frameID) + "_" + to_string(level) + ".png";
+        imwrite(filepath, kpImage);
+    }
+
     void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint>> &allKeypoints)
     {
         // allKeypoints每一个元素是一个vector，存放的是这一层提取到的特征点
@@ -1018,10 +1056,11 @@ namespace ORB_SLAM2
 
             for (int i = 0; i < nRows; i++)
             {
-                // 一系列格网坐标相关的判断与处理，不用过于深究
                 const float iniY = minBorderY + i * hCell;
                 float maxY = iniY + hCell + 6; // ??
 
+                // 如果iniY离maxBorderY连3个像素都没有，就不满足FAST算法的计算条件了
+                // 中心点向左、向右、向上、向下各延伸3个像素
                 if (iniY >= maxBorderY - 3) // Does not meet the condition FAST-16-9(the edge=3)
                     continue;
                 if (maxY > maxBorderY)
@@ -1030,10 +1069,10 @@ namespace ORB_SLAM2
                 // 为了保证中心像素周围的像素存在，所以设置了边界
                 for (int j = 0; j < nCols; j++)
                 {
-                    // 一系列格网坐标相关的判断与处理，不用过于深究
                     const float iniX = minBorderX + j * wCell;
                     float maxX = iniX + wCell + 6;
-                    if (iniX >= maxBorderX - 6) // ??
+                    // TODO: 修改为 maxBorderX - 3
+                    if (iniX >= maxBorderX - 6) // ?? 应该是3才对
                         continue;
                     if (maxX > maxBorderX)
                         maxX = maxBorderX;
@@ -1046,7 +1085,8 @@ namespace ORB_SLAM2
                     // If keypoints is empty, use min threshold(7) of the pixel
                     if (vKeysCell.empty())
                     {
-                        cout << "FAST threshold from 20 to 7" << endl;
+                        // 检测到多次下面的输出
+                        // cout << "FAST threshold from 20 to 7" << endl;
                         FAST(mvImagePyramid[level].rowRange(iniY, maxY).colRange(iniX, maxX),
                              vKeysCell, minThFAST, true);
                     }
@@ -1074,6 +1114,7 @@ namespace ORB_SLAM2
             keypoints = DistributeOctTree(vToDistributeKeys, minBorderX, maxBorderX,
                                           minBorderY, maxBorderY, mnFeaturesPerLevel[level], level);
 
+            // size:  31 31^2 31^3 ... 31^7
             const int scaledPatchSize = PATCH_SIZE * mvScaleFactor[level];
 
             // Add border to coordinates and scale information
@@ -1085,9 +1126,12 @@ namespace ORB_SLAM2
                 keypoints[i].octave = level;
                 keypoints[i].size = scaledPatchSize;
             }
+            // 绘制每层金字塔提取到的特征点
+            plotOctaveKeyPointsImage(mvImagePyramid[level], keypoints, frameId, level);
         }
 
         // compute orientations
+        // ORB_SLAM2
         for (int level = 0; level < nlevels; ++level)
             computeOrientation(mvImagePyramid[level], allKeypoints[level], umax);
     }
@@ -1260,6 +1304,7 @@ namespace ORB_SLAM2
         }
 
         // and compute orientations
+        // 计算当前层特征点的方向
         for (int level = 0; level < nlevels; ++level)
             computeOrientation(mvImagePyramid[level], allKeypoints[level], umax);
     }
@@ -1285,6 +1330,8 @@ namespace ORB_SLAM2
         if (_image.empty())
             return;
 
+        frameId++;
+
         Mat image = _image.getMat();
         // 如果图像不是单通道的灰度图像，则中断程序
         assert(image.type() == CV_8UC1);
@@ -1295,15 +1342,20 @@ namespace ORB_SLAM2
 
         // allKeypoints有很多层，每一层有很多个特征点，所以要用两个vector嵌套
         vector<vector<KeyPoint>> allKeypoints;
-        // 这里为了分布均匀，采用OctTree分割图像
+        // 这里为了分布均匀，采用网格分割图像后提取ORB特征点
         ComputeKeyPointsOctTree(allKeypoints);
         // ComputeKeyPointsOld(allKeypoints);
+
+        // 绘制金字塔每层的图像
+        // for (int i = 0; i < 8; i++)
+        // {
+        //     continue;
+        // }
 
         // 开始特征描述相关操作
         Mat descriptors;
 
         // 统计各层提取到的特征点的总和
-
         int nkeypoints = 0;
         for (int level = 0; level < nlevels; ++level)
         {
@@ -1311,6 +1363,14 @@ namespace ORB_SLAM2
             cout << "pyramid level " << level << "'s keypoints: " << allKeypoints[level].size() << endl;
         }
         cout << "nkeypoints: " << nkeypoints << endl;
+        // TODO: 分段统计响应
+        int response[26] = {0};
+        for (int i = 0; i < 8; i++)
+            for (size_t j = 0; j < allKeypoints[i].size(); j++)
+                response[static_cast<int>(allKeypoints[i][j].response / 10)]++;
+
+        for (int i = 0; i < 26; i++)
+            cout << "response " << i << ": " << response[i] << endl;
 
         // 如果一个特征点都没有提取到
         if (nkeypoints == 0)
@@ -1318,9 +1378,9 @@ namespace ORB_SLAM2
             _descriptors.release();
         else
         {
-            // 否则就创建一个Mat用于描述
+            // 否则就创建一个Mat用于计算二进制描述子
             // 这个Mat有nkeypoints行，32列，元素数据类型为CV_8U
-            // CV_8U: 无8位无符号整数 0-255
+            // CV_8U: 无符号8位无符号整数 0-255
             // 也就是说每个特征点由32个CV_8U的数字描述
             _descriptors.create(nkeypoints, 32, CV_8U);
             // 将传入的描述符先付给新建的descriptors方便操作
@@ -1332,7 +1392,7 @@ namespace ORB_SLAM2
         _keypoints.reserve(nkeypoints); // 设置长度
 
         int offset = 0; // 描述子的偏移量，用于在迭代计算描述子时找到正确的位置
-        // 按层数依次遍历特征点
+        // 按金字塔的层数依次遍历：高斯模糊图像、计算当前层金字塔的描述子
         for (int level = 0; level < nlevels; ++level)
         {
             // 根据索引获取每一层特征点的vector
@@ -1346,7 +1406,7 @@ namespace ORB_SLAM2
             // preprocess the resized image
             // 先获取当前层对应的图像内容，赋给workingMat方便后续处理
             Mat workingMat = mvImagePyramid[level].clone();
-            // 调用OpenCV的高斯模糊函数对图像进行模糊
+            // 调用OpenCV的高斯模糊函数对图像进行模糊，避免高斯噪声对BRIEF描述子的影响
             // (输入，输出，高斯卷积核大小，X、Y方向上的方差sigma，边缘扩展的方式)
             GaussianBlur(workingMat, workingMat, Size(7, 7), 2, 2, BORDER_REFLECT_101);
 
