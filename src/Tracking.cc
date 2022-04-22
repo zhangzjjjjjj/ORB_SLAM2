@@ -123,11 +123,11 @@ namespace ORB_SLAM2
         // 构造左目图像上ORB的提取对象，也适用于单目中非初始化帧的后续帧；如果是初始化帧，则单目构造ORB特征点的提取对象
         mpORBextractorLeft = new ORBextractor(nFeatures, fScaleFactor, nLevels, fIniThFAST, fMinThFAST);
 
-        // 如果是双目，增加右目图像的ORB提取对象
+        // 如果是双目，增加右目图像的ORB提取对象。注意双目没有额外的初始化帧提取器
         if (sensor == System::STEREO)
             mpORBextractorRight = new ORBextractor(nFeatures, fScaleFactor, nLevels, fIniThFAST, fMinThFAST);
 
-        // 如果时单目，再增加一个初始化帧的ORB提取对象；这里提取的特征点个数是正常的2倍
+        // 如果是单目，增加一个初始化帧的ORB提取对象；这里提取的特征点个数是正常的2倍
         if (sensor == System::MONOCULAR)
             mpIniORBextractor = new ORBextractor(2 * nFeatures, fScaleFactor, nLevels, fIniThFAST, fMinThFAST);
 
@@ -596,18 +596,19 @@ namespace ORB_SLAM2
     void Tracking::MonocularInitialization()
     {
         // 单目初始化核心操作
+
         // Tracking的成员变量mpInitializer在之前都没有进行初始化，所以为NULL，第一次运行会进入到这个if语句中
         if (!mpInitializer)
         {
             // Set Reference Frame
-            // 如果当前帧提取的特征点个数大于100，才将其作为参考帧，否则等待，什么都不做
+            // 如果当前帧提取的特征点个数大于100，才将其作为参考帧；否则提取下一帧
             if (mCurrentFrame.mvKeys.size() > 100)
             {
                 // 调用Frame类的拷贝构造函数，将当前帧的数据拷贝给mInitialFrame和mLastFrame
                 mInitialFrame = Frame(mCurrentFrame);
                 mLastFrame = Frame(mCurrentFrame);
                 // 在只有1帧的时候，将当前帧的校正过的特征点作为匹配点
-                // 调用resize函数动态修改mvPrevMatched大小并用for循环赋值
+                // 将当前帧的特征点赋给mvbPrevMatched
                 mvbPrevMatched.resize(mCurrentFrame.mvKeysUn.size());
                 for (size_t i = 0; i < mCurrentFrame.mvKeysUn.size(); i++)
                     mvbPrevMatched[i] = mCurrentFrame.mvKeysUn[i].pt;
@@ -633,10 +634,10 @@ namespace ORB_SLAM2
         {
             // Try to initialize
             // 如果当前帧的关键点的个数小于100就把mpInitializer删掉
-            // 当前帧紧随第一个初始化的帧，如果当前帧与初始化帧之间匹配的点数都小于100，那么后续帧也很难初始化成功，所以删除初始化帧
+            // 当前帧在初始化帧后面，如果当前帧与初始化帧之间匹配的点数都小于100，那么后续帧也很难初始化成功，所以删除初始化帧
             if ((int)mCurrentFrame.mvKeys.size() <= 100)
             {
-                // 初始化事变，删除mpInitializer并置为NULL，这样下次又重新进入到if语句中了
+                // 初始化失败，删除mpInitializer并置为NULL，这样下次又重新进入到if语句中了
                 delete mpInitializer;
                 mpInitializer = static_cast<Initializer *>(NULL);
                 // fill函数表示对容器进行填充，从开始到结束，全部填充为-1
@@ -645,11 +646,11 @@ namespace ORB_SLAM2
             }
 
             // Find correspondences
-            // 如果当前特征点个数岛屿100，开始尝试将当前帧的特征点与初始帧特征点匹配
+            // 如果当前特征点个数大于100，将当前帧与初始帧的特征点进行匹配
             // 新建了个临时变量matcher用于进行匹配
             ORBmatcher matcher(0.9, true);
-            // 这里的输入参数是初始帧和当前帧，输出要注意
-            // mvbPreMatched、mvIniMatches，它们的赋值就是在这个函数里进行的
+
+            // 输出：nmatches(匹配数)、mvbPreMatched、mvIniMatches
             int nmatches = matcher.SearchForInitialization(mInitialFrame, mCurrentFrame, mvbPrevMatched, mvIniMatches, 100);
 
             // Check if there are enough correspondences

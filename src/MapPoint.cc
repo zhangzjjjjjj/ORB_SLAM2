@@ -95,12 +95,14 @@ namespace ORB_SLAM2
         mNormalVector = mWorldPos - Ow;
         mNormalVector = mNormalVector / cv::norm(mNormalVector);
 
+        // pFrame是当前地图点的参考帧
         cv::Mat PC = Pos - Ow;
         const float dist = cv::norm(PC);
         const int level = pFrame->mvKeysUn[idxF].octave;
         const float levelScaleFactor = pFrame->mvScaleFactors[level];
         const int nLevels = pFrame->mnScaleLevels;
 
+        // 得到最小观测距离和最大观测距离
         mfMaxDistance = dist * levelScaleFactor;
         mfMinDistance = mfMaxDistance / pFrame->mvScaleFactors[nLevels - 1];
 
@@ -138,6 +140,7 @@ namespace ORB_SLAM2
         return mpRefKF;
     }
 
+    // 添加当前地图点对某KeyFrame的观测
     void MapPoint::AddObservation(KeyFrame *pKF, size_t idx)
     {
         // 增加线程锁防止ID冲突
@@ -152,21 +155,21 @@ namespace ORB_SLAM2
         mObservations[pKF] = idx;
 
         // mvuRight它是一个vector，元素是float，注释说是negative value of monocular points
-        // 它是针对双目的情形使用的，对于弹幕情况mvuRight里面的值全为-1
+        // 它是针对双目的情形使用的，对于单目情况mvuRight里面的值全为-1
         // 它一开始是在Frame.cc的228行赋值的，关键帧KeyFrame中的mvuRight是在构造函数中直接拷贝的，对应Frame的mvuRight
-        // 这行代码的意思是如果它的值大于0，观测个数加2，否则加1
-        // 结合它的定义就可以理解了，对于双目情况，一次有左右两个观测，所以观测次数+2，
-        // 对于单目情况，在一开始赋值的时候全为-1，所以这里观测次数+1
+        // 单目关键帧每次观测算1个相机，双目/RGBD关键帧每次观测算2个相机
         if (pKF->mvuRight[idx] >= 0)
             nObs += 2;
         else
             nObs++;
     }
 
+    // 删除当前地图点对某KeyFrame的观测
     void MapPoint::EraseObservation(KeyFrame *pKF)
     {
         bool bBad = false;
         {
+            // 锁只在大括号内有效
             unique_lock<mutex> lock(mMutexFeatures);
             if (mObservations.count(pKF))
             {
@@ -187,6 +190,7 @@ namespace ORB_SLAM2
             }
         }
 
+        // 在锁所在的大括号外面，说明这里的操作不会引发冲突
         if (bBad)
             SetBadFlag();
     }
@@ -420,14 +424,25 @@ namespace ORB_SLAM2
             return -1;
     }
 
+    // 查询当前地图点是否在某KeyFrame中
     bool MapPoint::IsInKeyFrame(KeyFrame *pKF)
     {
         unique_lock<mutex> lock(mMutexFeatures);
         return (mObservations.count(pKF));
     }
 
+    // 更新平均观测方向和距离
     void MapPoint::UpdateNormalAndDepth()
     {
+        // 更新当前地图点的平均观测方向和距离，其中平均观测方向是根据mObservations中所有
+        // 观测到本地图点的关键帧取平均得到的；平均观测距离信息是根据参考关键帧得到的
+
+        // 地图点的参考关键帧如何指定？
+        // 1. 构建函数中，创建该地图点的参考帧被设为参考关键帧
+        // 2. 若当前地图点对参考关键帧的观测被删除(EraseObserbation())，则取第一个观测到当前地图点的关键帧
+        //    作参考关键帧
+
+        // step1. 获取地图点相关信息
         // 还是之前说的，一个observation是一个KeyFrame类+这个地图点在KeyFrame中对应特征点的索引
         map<KeyFrame *, size_t> observations;
         KeyFrame *pRefKF;
@@ -448,6 +463,7 @@ namespace ORB_SLAM2
         if (observations.empty())
             return;
 
+        // step2. 根据观测到当前地图点的关键帧取平均，计算平均观测方向
         // normal是一个3*1的全为0的向量
         cv::Mat normal = cv::Mat::zeros(3, 1, CV_32F);
         int n = 0;
@@ -465,6 +481,7 @@ namespace ORB_SLAM2
             n++;
         }
 
+        // step3. 根据参考关键帧计算平均观测距离
         // 世界坐标系-参考帧相机中心的坐标
         cv::Mat PC = Pos - pRefKF->GetCameraCenter();
         // 对PC这个向量求范数，默认是L2范数，也就是欧氏距离
@@ -480,7 +497,7 @@ namespace ORB_SLAM2
         {
             unique_lock<mutex> lock3(mMutexPos);
             // 将距离（长度）乘以刚刚获得的尺度因子，就可以得到距离
-            // 关于这两个参数的意义还有待进一步理解
+            // 得到最小观测距离和最大观测距离
             mfMaxDistance = dist * levelScaleFactor;
             mfMinDistance = mfMaxDistance / pRefKF->mvScaleFactors[nLevels - 1];
             mNormalVector = normal / n;

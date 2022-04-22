@@ -29,7 +29,7 @@
 
 namespace ORB_SLAM2
 {
-    // 将参考帧的内参矩阵K和校正过的特征点坐标对应赋给Initializer的成员变量
+    // 第一帧满足条件后，创建Initializer；sigma=1.0，iterations=200
     Initializer::Initializer(const Frame &ReferenceFrame, float sigma, int iterations)
     {
         mK = ReferenceFrame.mK.clone();
@@ -41,9 +41,12 @@ namespace ORB_SLAM2
         mMaxIterations = iterations;
     }
 
+    // 初始化，如果成功返回true，否则返回false
     bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatches12, cv::Mat &R21, cv::Mat &t21,
                                  vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated)
     {
+        // 单目初始化
+
         // Fill structures with current keypoints and matches with reference frame
         // Reference Frame: 1, Current Frame: 2
         mvKeys2 = CurrentFrame.mvKeysUn;

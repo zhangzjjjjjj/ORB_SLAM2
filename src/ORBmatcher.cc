@@ -41,7 +41,8 @@ namespace ORB_SLAM2
 
     ORBmatcher::ORBmatcher(float nnratio, bool checkOri) : mfNNratio(nnratio), mbCheckOrientation(checkOri)
     {
-        // 构造函数里什么都没干，只是进行了赋值操作
+        // 构造函数仅进行了赋值操作
+        // 单目初始化 nnratio=0.9, checkOri=true
     }
 
     int ORBmatcher::SearchByProjection(Frame &F, const vector<MapPoint *> &vpMapPoints, const float th)
@@ -417,6 +418,8 @@ namespace ORB_SLAM2
 
     int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f> &vbPrevMatched, vector<int> &vnMatches12, int windowSize)
     {
+        // 为初始化寻找匹配
+
         int nmatches = 0;
         // 初始化vnMatches12长度为F1中特征点的个数，数值全为-1
         // 所谓匹配其实本质上说就是vector之间的索引关系，所以这里vnMatches12存放的是索引，所以类型是int
@@ -438,7 +441,8 @@ namespace ORB_SLAM2
             cv::KeyPoint kp1 = F1.mvKeysUn[i1];
             // 特征点的属性之一，表示该特征点是从金字塔的那一层提取出来的；octave：八度音阶
             int level1 = kp1.octave;
-            // 如果金字塔层数大于0，直接跳过后续步骤执行下一次循环
+            // 如果当前特征点所在金字塔的层数大于0，直接跳过后续步骤执行下一次循环
+            // 仅计算金字塔第0层的特征点
             if (level1 > 0)
                 continue;
 
@@ -455,6 +459,7 @@ namespace ORB_SLAM2
             int bestDist2 = INT_MAX;
             int bestIdx2 = -1;
 
+            // 遍历第二帧中根据第一个特征点所在的大小为100的窗口内的特征点
             for (vector<size_t>::iterator vit = vIndices2.begin(); vit != vIndices2.end(); vit++)
             {
                 size_t i2 = *vit;

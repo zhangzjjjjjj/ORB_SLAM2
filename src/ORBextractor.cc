@@ -1323,10 +1323,11 @@ namespace ORB_SLAM2
             computeOrbDescriptor(keypoints[i], image, &pattern[0], descriptors.ptr((int)i));
     }
 
-    // Extractor keypoints for image on every levels of the pyramid; mask: 掩膜，这里没有用到
+    // 使用图像金字塔提取每一层的特征点
     void ORBextractor::operator()(InputArray _image, InputArray _mask, vector<KeyPoint> &_keypoints,
-                                  OutputArray _descriptors)
+                                  OutputArray _descriptors) // mask未使用
     {
+        // step1. 检查图像有效性
         if (_image.empty())
             return;
 
@@ -1336,21 +1337,18 @@ namespace ORB_SLAM2
         // 如果图像不是单通道的灰度图像，则中断程序
         assert(image.type() == CV_8UC1);
 
+        // step2. 构造图像金字塔
         // Pre-compute the scale pyramid
         // 它的返回值是直接返回给了ORB提取对象的public成员变量mvImagePyramid，所以这里看起来没有返回值
         ComputePyramid(image);
 
+        // step3. 计算特征点并进行八叉树筛选
         // allKeypoints有很多层，每一层有很多个特征点，所以要用两个vector嵌套
         vector<vector<KeyPoint>> allKeypoints;
         // 这里为了分布均匀，采用网格分割图像后提取ORB特征点
         ComputeKeyPointsOctTree(allKeypoints);
         // ComputeKeyPointsOld(allKeypoints);
 
-        // 绘制金字塔每层的图像
-        // for (int i = 0; i < 8; i++)
-        // {
-        //     continue;
-        // }
 
         // 开始特征描述相关操作
         Mat descriptors;
@@ -1391,6 +1389,7 @@ namespace ORB_SLAM2
         _keypoints.clear();
         _keypoints.reserve(nkeypoints); // 设置长度
 
+        // step4. 遍历每一层图像，计算描述子
         int offset = 0; // 描述子的偏移量，用于在迭代计算描述子时找到正确的位置
         // 按金字塔的层数依次遍历：高斯模糊图像、计算当前层金字塔的描述子
         for (int level = 0; level < nlevels; ++level)
@@ -1436,6 +1435,7 @@ namespace ORB_SLAM2
         }
     }
 
+    // 构造图像金字塔
     void ORBextractor::ComputePyramid(cv::Mat image)
     {
         // nlevels是成员变量，在构造函数中被初始化

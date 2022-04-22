@@ -49,6 +49,7 @@ namespace ORB_SLAM2
 
         mbFinished = false;
 
+        // 死循环
         while (1)
         {
             // Tracking will see that Local Mapping is busy

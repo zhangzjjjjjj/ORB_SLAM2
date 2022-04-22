@@ -123,6 +123,7 @@ namespace ORB_SLAM2
         }
 
         // Set pointers between threads
+        // 设置线程间通信
         mpTracker->SetLocalMapper(mpLocalMapper);
         mpTracker->SetLoopClosing(mpLoopCloser);
 
@@ -284,7 +285,7 @@ namespace ORB_SLAM2
 
         // 这个函数是是单目Tracking的核心，它的返回值是一个变换矩阵(4*4)
         cv::Mat Tcw = mpTracker->GrabImageMonocular(im, timestamp);
-
+ 
         // 线程独占锁；在unique_lock对象的声明周期内，它所管理的锁对象会一直保持上锁状态；
         // 而unique_lock的声明周期结束后，它所管理的锁对象会被解锁
         // 假设现在有两个线程中，这两个线程中的函数分别定义了

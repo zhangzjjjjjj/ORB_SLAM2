@@ -86,6 +86,8 @@ public:
     static long unsigned int nNextId;
     long int mnFirstKFid;
     long int mnFirstFrame;
+    // 当前地图点被多少个关键帧相机观测到了
+    // 单目关键帧每次观测算1个相机，双目/RGBD每帧每次观测算2个相机
     int nObs;
 
     // Variables used by the tracking
@@ -138,8 +140,11 @@ protected:
      MapPoint* mpReplaced;
 
      // Scale invariance distances
-     float mfMinDistance;
-     float mfMaxDistance;
+     // 最远最近都是在金字塔中才有意义
+     // currentDist / mfMaxDistance = 1.2^(level)
+     // level = log(1.2)(currentDist / mfMaxDistance)
+     float mfMinDistance;   // 当前地图点观测到的最近位置
+     float mfMaxDistance;   // 当前地图点观测到的最远位置
 
      Map* mpMap;
 

@@ -76,8 +76,10 @@ namespace ORB_SLAM2
         mvInvLevelSigma2 = mpORBextractorLeft->GetInverseScaleSigmaSquares();
 
         // ORB extraction
+        // 双目提取的时候建立了两个线程，也是为了加速提取
         thread threadLeft(&Frame::ExtractORB, this, 0, imLeft);
         thread threadRight(&Frame::ExtractORB, this, 1, imRight);
+        // join()是为了等待，两个线程提取成功之后才可以继续往下
         threadLeft.join();
         threadRight.join();
 
@@ -172,7 +174,7 @@ namespace ORB_SLAM2
         AssignFeaturesToGrid();
     }
 
-    // Monocular case: initialize Frame object
+    // 单目初始化帧
     Frame::Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor *extractor, ORBVocabulary *voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth)
         : mpORBvocabulary(voc), mpORBextractorLeft(extractor), mpORBextractorRight(static_cast<ORBextractor *>(NULL)),
           mTimeStamp(timeStamp), mK(K.clone()), mDistCoef(distCoef.clone()), mbf(bf), mThDepth(thDepth)
@@ -228,7 +230,7 @@ namespace ORB_SLAM2
         mvuRight = vector<float>(N, -1);
         mvDepth = vector<float>(N, -1);
 
-        // 地图点和外基线
+        // 地图点和外基线：outlier即为匹配不好的点
         mvpMapPoints = vector<MapPoint *>(N, static_cast<MapPoint *>(NULL));
         mvbOutlier = vector<bool>(N, false);
 
@@ -362,6 +364,7 @@ namespace ORB_SLAM2
         return true;
     }
 
+    // 在当前帧中根据特征点坐标和窗口大小搜索特征点
     vector<size_t> Frame::GetFeaturesInArea(const float &x, const float &y, const float &r, const int minLevel, const int maxLevel) const
     {
         vector<size_t> vIndices;
